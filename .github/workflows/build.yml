@@ -71,15 +71,16 @@ jobs:
       - name: Resolve base image and kernel
         run: |
           set -euo pipefail
-          BASE="ghcr.io/ublue-os/bazzite:stable"
-          DIGEST=$(skopeo inspect --format '{{.Digest}}' "docker://${BASE}")
-          KERNEL_VERSION=$(skopeo inspect --format '{{index .Labels "ostree.linux"}}' "docker://${BASE}@${DIGEST}")
+          REPO="ghcr.io/ublue-os/bazzite"
+          DIGEST=$(skopeo inspect --format '{{.Digest}}' "docker://${REPO}:stable")
+          BASE="${REPO}@${DIGEST}"
+          KERNEL_VERSION=$(skopeo inspect --format '{{index .Labels "ostree.linux"}}' "docker://${BASE}")
           FEDORA_VERSION=$(sed -E 's/.*\.fc([0-9]+)\..*/\1/' <<< "${KERNEL_VERSION}")
           KERNEL_FLAVOR=$(sed -E 's/^[0-9.]+-([a-z]+).*/\1/' <<< "${KERNEL_VERSION}")
-          echo "Base:   ${BASE}@${DIGEST}"
+          echo "Base:   ${BASE}"
           echo "Kernel: ${KERNEL_VERSION} (flavor ${KERNEL_FLAVOR}, Fedora ${FEDORA_VERSION})"
           {
-            echo "BASE_IMAGE=${BASE}@${DIGEST}"
+            echo "BASE_IMAGE=${BASE}"
             echo "KERNEL_VERSION=${KERNEL_VERSION}"
             echo "FEDORA_VERSION=${FEDORA_VERSION}"
             echo "KERNEL_FLAVOR=${KERNEL_FLAVOR}"
