@@ -99,6 +99,27 @@ build $target_image=image_name $tag=default_tag:
     set -euox pipefail
 
     BUILD_ARGS=()
+
+    # Base image digest and kernel are resolved by CI (see .github/workflows/build.yml)
+    for var in BASE_IMAGE KERNEL_VERSION KERNEL_FLAVOR FEDORA_VERSION; do
+        if [[ -n "${!var:-}" ]]; then
+            BUILD_ARGS+=("--build-arg" "${var}=${!var}")
+        fi
+    done
+
+    # Module-signing key and certificate: always build *secrets*, never build args.
+    # `-v` tests existence without expanding the value, so xtrace never prints it.
+    # CI passes them in the environment; locally, point MOK_KEY_FILE/MOK_CERT_FILE at files.
+    if [[ -v MOK_KEY ]]; then
+        BUILD_ARGS+=("--secret" "id=mok_key,env=MOK_KEY")
+    elif [[ -n "${MOK_KEY_FILE:-}" ]]; then
+        BUILD_ARGS+=("--secret" "id=mok_key,src=${MOK_KEY_FILE}")
+    fi
+    if [[ -v MOK_CERT ]]; then
+        BUILD_ARGS+=("--secret" "id=mok_cert,env=MOK_CERT")
+    elif [[ -n "${MOK_CERT_FILE:-}" ]]; then
+        BUILD_ARGS+=("--secret" "id=mok_cert,src=${MOK_CERT_FILE}")
+    fi
     LABELS=()
     if [[ -z "$(git status -s)" ]]; then
         GIT_SHA=$(git rev-parse --short HEAD)

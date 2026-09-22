@@ -4,3 +4,8 @@ output
 _build-*/**
 *_chunkah_*
 *_rpm-ostree_*
+
+# Module signing keys must never be committed
+*.priv
+*.key
+MOK.*

@@ -66,9 +66,31 @@ jobs:
           echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> ${GITHUB_ENV}
           echo "IMAGE_NAME=${IMAGE_NAME,,}" >> ${GITHUB_ENV}
 
+      # Pin today's Bazzite to a digest and read its kernel, so the IPTS module
+      # is compiled against exactly the kernel that ships in the image.
+      - name: Resolve base image and kernel
+        run: |
+          set -euo pipefail
+          BASE="ghcr.io/ublue-os/bazzite:stable"
+          DIGEST=$(skopeo inspect --format '{{.Digest}}' "docker://${BASE}")
+          KERNEL_VERSION=$(skopeo inspect --format '{{index .Labels "ostree.linux"}}' "docker://${BASE}@${DIGEST}")
+          FEDORA_VERSION=$(sed -E 's/.*\.fc([0-9]+)\..*/\1/' <<< "${KERNEL_VERSION}")
+          KERNEL_FLAVOR=$(sed -E 's/^[0-9.]+-([a-z]+).*/\1/' <<< "${KERNEL_VERSION}")
+          echo "Base:   ${BASE}@${DIGEST}"
+          echo "Kernel: ${KERNEL_VERSION} (flavor ${KERNEL_FLAVOR}, Fedora ${FEDORA_VERSION})"
+          {
+            echo "BASE_IMAGE=${BASE}@${DIGEST}"
+            echo "KERNEL_VERSION=${KERNEL_VERSION}"
+            echo "FEDORA_VERSION=${FEDORA_VERSION}"
+            echo "KERNEL_FLAVOR=${KERNEL_FLAVOR}"
+          } >> "$GITHUB_ENV"
+
       # This actually builds the container image
       - name: Build Image
         id: build-image
+        env:
+          MOK_KEY: ${{ secrets.MOK_KEY }}
+          MOK_CERT: ${{ secrets.MOK_CERT }}
         run: |
           just build \
             ${IMAGE_NAME} \
@@ -112,6 +134,17 @@ jobs:
             "${IMAGE_NAME}" \
             "${DEFAULT_TAG}" \
             "${ALIAS_TAGS}"
+
+      # Hard gate: export the complete final image filesystem and fail the job
+      # if any fragment of the signing key (PEM, DER or raw key numbers) is in it.
+      - name: Assert no signing-key material in image
+        env:
+          MOK_KEY: ${{ secrets.MOK_KEY }}
+        run: |
+          set -euo pipefail
+          ctr=$(podman create "${IMAGE_NAME}:${DEFAULT_TAG}" /bin/true)
+          trap 'podman rm -f "$ctr" >/dev/null' EXIT
+          podman export "$ctr" | python3 .github/scripts/assert-no-key-material.py
 
       # These `if` statements are so that pull requests for your custom images do not make it publish any packages under your name without you knowing
       # They also check if the runner is on the default branch so that things like the merge queue (if you enable it), are going to work

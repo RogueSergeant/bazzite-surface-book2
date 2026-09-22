@@ -1,0 +1,48 @@
+Use hid_safe_input_report() so IPTS works on Linux 7.x
+
+Linux 7.x hid-core rejects input reports whose buffer is shorter than the
+size computed from the report descriptor, instead of zero-padding them as
+older kernels did. hid_input_report() passes bufsize == size, so every raw
+IPTS frame (report 65: descriptor says 7487 bytes, driver sends 7484) fails
+with -EINVAL: "Event data for report 65 was too short (7487 vs 7484)".
+
+Allocate the synthesized report buffer with headroom and pass its real size
+via hid_safe_input_report(), letting hid-core pad the report itself.
+
+Tested on Surface Book 2 13" (EDS v1), kernel 7.2.4-ogc3.1.fc44.
+---
+--- a/hid.c
++++ b/hid.c
+@@ -141,7 +141,9 @@
+ 		return 0;
+ 
+ 	if (header->type == IPTS_DATA_TYPE_HID)
+-		return hid_input_report(ipts->hid, HID_INPUT_REPORT, header->data, header->size, 1);
++		return hid_safe_input_report(ipts->hid, HID_INPUT_REPORT, header->data,
++					     ipts->resources.data[buffer].size - sizeof(*header),
++					     header->size, 1);
+ 
+ 	if (header->type == IPTS_DATA_TYPE_GET_FEATURES) {
+ 		ipts->feature_report.address = header->data;
+@@ -168,7 +170,8 @@
+ 
+ 	memcpy(frame->data, header->data, header->size);
+ 
+-	return hid_input_report(ipts->hid, HID_INPUT_REPORT, temp, IPTS_HID_REPORT_DATA_SIZE, 1);
++	return hid_safe_input_report(ipts->hid, HID_INPUT_REPORT, temp, ipts->resources.report.size,
++				     IPTS_HID_REPORT_DATA_SIZE, 1);
+ }
+ 
+ int ipts_hid_init(struct ipts_context *ipts, struct ipts_device_info info)
+--- a/resources.c
++++ b/resources.c
+@@ -88,7 +88,8 @@
+ 		goto err;
+ 
+ 	if (!res->report.address) {
+-		res->report.size = IPTS_HID_REPORT_DATA_SIZE;
++		/* Linux 7.x rejects reports shorter than the descriptor; leave room for hid-core to pad. */
++		res->report.size = IPTS_HID_REPORT_DATA_SIZE + 64;
+ 		res->report.address = kzalloc(res->report.size, GFP_KERNEL);
+ 
+ 		if (!res->report.address) {

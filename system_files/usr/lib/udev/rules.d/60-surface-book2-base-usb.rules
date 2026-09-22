@@ -1,0 +1,6 @@
+# Surface Book 2: keep the base's USB hubs (L1 045e:0942, L2 045e:0944) out of
+# USB autosuspend. The hinge connector is electrically marginal; suspend/resume
+# cycles over it show up as "cannot reset (err = -71)" and the whole base
+# (keyboard, touchpad, ports) repeatedly disconnecting and re-enumerating.
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="0942", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="0944", ATTR{power/control}="on"

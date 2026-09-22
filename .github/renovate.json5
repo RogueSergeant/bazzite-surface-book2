@@ -8,6 +8,11 @@
 
   "packageRules": [
     {
+      // Base image and kernel are resolved to a digest by the build workflow at build time
+      "enabled": false,
+      "matchFileNames": ["Containerfile"],
+    },
+    {
       "automerge": true,
       "matchUpdateTypes": ["pin", "pinDigest"]
     },

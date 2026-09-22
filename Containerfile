@@ -1,40 +1,51 @@
+# Bazzite for the Surface Book 2 13"
+#
+# Adds the IPTS touchscreen/pen driver (patched for Linux 7.x), iptsd, and a
+# base-hub USB fix on top of the stock Bazzite KDE image.
+#
+# CI resolves BASE_IMAGE to a digest and reads KERNEL_VERSION from its
+# ostree.linux label, so the module is always built for the exact kernel.
+
+ARG BASE_IMAGE=ghcr.io/ublue-os/bazzite:stable
+ARG KERNEL_VERSION=7.2.4-ogc3.1.fc44.x86_64
+ARG KERNEL_FLAVOR=ogc
+ARG FEDORA_VERSION=44
+
 # Allow build scripts to be referenced without being copied into the final image
 FROM scratch AS ctx
 COPY build_files /
 COPY system_files /system_files
 
-# Base Image
-FROM ghcr.io/ublue-os/bazzite:stable@sha256:9556db65991d57a03a7dc18e4ba28a686d8bcdcd6b61235aa69c8267bb22ff76
-## Other possible base images include:
-# FROM ghcr.io/ublue-os/bazzite:testing
-# FROM ghcr.io/ublue-os/aurora:stable
-# FROM ghcr.io/ublue-os/bluefin-nvidia-open:stable
-# 
-# ... and so on, here are more base images
-# Universal Blue Images: https://github.com/orgs/ublue-os/packages
-# Fedora base image: quay.io/fedora/fedora-bootc:44
-# CentOS base images: quay.io/centos-bootc/centos-bootc:stream10
+# kernel-devel for the base image's kernel, published by Universal Blue
+FROM ghcr.io/ublue-os/akmods:${KERNEL_FLAVOR}-${FEDORA_VERSION}-${KERNEL_VERSION} AS akmods
 
-### [IM]MUTABLE /opt
-## Some bootable images, like Fedora, have /opt symlinked to /var/opt, in order to
-## make it mutable/writable for users. However, some packages write files to this directory,
-## thus its contents might be wiped out when bootc deploys an image, making it troublesome for
-## some packages. Eg, google-chrome, docker-desktop.
-##
-## Uncomment the following line if one desires to make /opt immutable and be able to be used
-## by the package manager.
+# Throwaway builder stage.
+#
+# The module-signing key is only ever mounted here, as a build secret: it is
+# never written to a layer, and nothing from this stage reaches the final image
+# except the files under /out that the final stage explicitly copies. The
+# builder stage itself is never pushed.
+FROM registry.fedoraproject.org/fedora:${FEDORA_VERSION} AS builder
+ARG KERNEL_VERSION
+COPY --from=akmods /kernel-rpms/kernel-devel-${KERNEL_VERSION}.rpm /tmp/rpms/
+COPY ipts /src/ipts
+COPY build_files/builder /builder
+RUN /builder/build-iptsd.sh
+RUN --mount=type=secret,id=mok_key,required=true \
+    --mount=type=secret,id=mok_cert,required=true \
+    KERNEL_VERSION=${KERNEL_VERSION} /builder/build-ipts.sh
 
-# RUN rm /opt && mkdir /opt
+# Final image
+FROM ${BASE_IMAGE}
+ARG KERNEL_VERSION
 
-### MODIFICATIONS
-## make modifications desired in your image and install packages by modifying the build.sh script
-## the following RUN directive does all the things required to run "build.sh" as recommended.
+COPY --from=builder /out/ /
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=cache,dst=/var/log \
     --mount=type=tmpfs,dst=/tmp \
-    /ctx/build.sh
+    KERNEL_VERSION=${KERNEL_VERSION} /ctx/build.sh
 
 ### LINTING
 ## Verify final image and contents are correct.

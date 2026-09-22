@@ -2,26 +2,32 @@
 
 set -ouex pipefail
 
+: "${KERNEL_VERSION:?KERNEL_VERSION must be set}"
+
 # Copy the contents of system_files/ of the git repo to /
 cp -avf "/ctx/system_files"/. /
 
-### Install packages
+# The IPTS module was copied in from the builder stage; register it so it
+# autoloads (it matches the touch controller's MEI client UUID).
+test -f "/usr/lib/modules/${KERNEL_VERSION}/extra/ipts/ipts.ko"
+depmod -a "${KERNEL_VERSION}"
+modinfo -k "${KERNEL_VERSION}" ipts | grep -E '^(filename|signer|alias)'
 
-# Packages can be installed from any enabled yum repo on the image.
-# RPMfusion repos are available by default in ublue main images
-# List of rpmfusion packages can be found here:
-# https://mirrors.rpmfusion.org/mirrorlist?path=free/fedora/updates/43/x86_64/repoview/index.html&protocol=https&redirect=1
+# Trust this image's own cosign key, so updates are verified like Bazzite's.
+python3 - <<'EOF'
+import json
+path = "/etc/containers/policy.json"
+with open(path) as f:
+    policy = json.load(f)
+policy["transports"]["docker"]["ghcr.io/roguesergeant/bazzite-surface-book2"] = [{
+    "type": "sigstoreSigned",
+    "keyPath": "/etc/pki/containers/bazzite-surface-book2.pub",
+    "signedIdentity": {"type": "matchRepository"},
+}]
+with open(path, "w") as f:
+    json.dump(policy, f, indent=4)
+EOF
 
-# this installs a package from fedora repos
-dnf5 install -y tmux
-
-# Use a COPR Example:
-#
-# dnf5 -y copr enable ublue-os/staging
-# dnf5 -y install package
-# Disable COPRs so they don't end up enabled on the final image:
-# dnf5 -y copr disable ublue-os/staging
-
-#### Example for enabling a System Unit File
-
-systemctl enable podman.socket
+# iptsd is started per-device by its udev rule; make sure both landed.
+test -x /usr/bin/iptsd
+ls /usr/lib/udev/rules.d/*iptsd* /usr/lib/systemd/system/iptsd@.service
