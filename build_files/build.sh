@@ -31,3 +31,12 @@ EOF
 # iptsd is started per-device by its udev rule; make sure both landed.
 test -x /usr/bin/iptsd
 ls /usr/lib/udev/rules.d/*iptsd* /usr/lib/systemd/system/iptsd@.service
+
+# iptsd's unit is BindsTo= its hidraw device unit, but upstream's rule only tags
+# the device on ACTION=="add". A later "change" event (e.g. udev coldplug at
+# boot) leaves the device untagged, systemd deactivates the device unit, and
+# iptsd is stopped a few seconds into every boot. Tag on any non-remove event.
+RULE=/usr/lib/udev/rules.d/50-iptsd.rules
+grep -q 'ACTION=="add"' "$RULE"
+sed -i 's/ACTION=="add"/ACTION!="remove"/' "$RULE"
+grep -q 'ACTION!="remove"' "$RULE"
